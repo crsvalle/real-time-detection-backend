@@ -1,7 +1,6 @@
 from fastapi import FastAPI
 from app.routers import detect
-from app.middleware.cors import setup_cors  
-from app.config import get_settings  
+from app.middleware.cors import setup_cors   
 
 app = FastAPI()
 
@@ -11,5 +10,4 @@ setup_cors(app)
 async def main():
     return {"message": "Hello World"}
 
-
-app.include_router(detect.router, prefix="/api")
+app.include_router(detect.router)
