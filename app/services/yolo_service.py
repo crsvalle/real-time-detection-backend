@@ -11,13 +11,17 @@ async def detect_car(file: UploadFile):
     image = cv2.imdecode(np.frombuffer(contents, np.uint8), cv2.IMREAD_COLOR)
     results = model(image)
 
+    CONF_THRESHOLD = 0.5  # Only keep detections above 50% confidence
     detections = []
 
     if results and hasattr(results[0], 'boxes'):
         for box in results[0].boxes:
+            conf = box.conf[0].item()  # Confidence
+            if conf < CONF_THRESHOLD:
+                continue  # Skip low-confidence boxes
+
             x1, y1, x2, y2 = box.xyxy[0]  # Bounding box
-            conf = box.conf[0]           # Confidence
-            cls = box.cls[0]             # Class index
+            cls = box.cls[0]              # Class index
 
             class_label = class_names.get(int(cls), f"Unknown Class ({int(cls)})")
 
@@ -31,5 +35,13 @@ async def detect_car(file: UploadFile):
                 }
             }
             detections.append(detection)
+
+
+    if detections:
+        largest_detection = max(
+            detections,
+            key=lambda d: (d['box']['x_max'] - d['box']['x_min']) * (d['box']['y_max'] - d['box']['y_min'])
+        )
+        detections = [largest_detection]
 
     return {"detections": detections}
