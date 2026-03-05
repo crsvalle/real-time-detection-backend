@@ -1,7 +1,8 @@
 from ultralytics import YOLO
 import cv2
 import numpy as np
-from fastapi import UploadFile
+from fastapi import UploadFile, Form
+import json
 import base64
 
 model = YOLO("app/models/yolov8n.pt")
@@ -10,9 +11,9 @@ class_names = model.names
 VEHICLE_CLASSES = {"car", "truck", "bus", "motorcycle"}
 CONF_THRESHOLD = 0.5
 
+# Detect all vehicles
 
 async def detect_car(file: UploadFile):
-    # Read image from UploadFile
     contents = await file.read()
     image = cv2.imdecode(np.frombuffer(contents, np.uint8), cv2.IMREAD_COLOR)
 
@@ -33,7 +34,7 @@ async def detect_car(file: UploadFile):
 
             x1, y1, x2, y2 = box.xyxy[0]
 
-            detection = {
+            vehicle_detections.append({
                 "class": class_label,
                 "confidence": conf,
                 "box": {
@@ -42,23 +43,20 @@ async def detect_car(file: UploadFile):
                     "x_max": int(x2.item()),
                     "y_max": int(y2.item())
                 }
-            }
-            vehicle_detections.append(detection)
+            })
 
-    if not vehicle_detections:
-        return {"detections": [], "cropped_image": None}
+    return {"detections": vehicle_detections}
 
-    # Select the largest vehicle
-    largest_vehicle = max(
-        vehicle_detections,
-        key=lambda d: (
-            (d["box"]["x_max"] - d["box"]["x_min"]) *
-            (d["box"]["y_max"] - d["box"]["y_min"])
-        )
-    )
 
-    # Crop the largest vehicle
-    box = largest_vehicle["box"]
+# -----------------------------
+# 2️⃣ Analyze user-selected vehicle
+# -----------------------------
+async def analyze_selected_car(file: UploadFile, box: str = Form(...)):
+    contents = await file.read()
+    image = cv2.imdecode(np.frombuffer(contents, np.uint8), cv2.IMREAD_COLOR)
+
+    # box comes as JSON string from frontend
+    box = json.loads(box)
     h, w, _ = image.shape
 
     x_min = max(0, box["x_min"])
@@ -68,11 +66,8 @@ async def detect_car(file: UploadFile):
 
     cropped = image[y_min:y_max, x_min:x_max]
 
-    # Encode cropped image to base64 for frontend or API
+    # Encode cropped image to base64
     _, buffer = cv2.imencode(".jpg", cropped)
     cropped_base64 = base64.b64encode(buffer).decode("utf-8")
 
-    return {
-        "detections": [largest_vehicle],
-        "cropped_image": cropped_base64
-    }
+    return {"cropped_image": cropped_base64}
