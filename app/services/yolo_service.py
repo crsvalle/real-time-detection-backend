@@ -4,6 +4,12 @@ import numpy as np
 from fastapi import UploadFile, Form
 import json
 import base64
+import tempfile
+import os
+import sys
+
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
+from infer import predict
 
 model = YOLO("app/models/yolov8n.pt")
 class_names = model.names
@@ -11,7 +17,6 @@ class_names = model.names
 VEHICLE_CLASSES = {"car", "truck", "bus", "motorcycle"}
 CONF_THRESHOLD = 0.5
 
-# Detect all vehicles
 
 async def detect_car(file: UploadFile):
     contents = await file.read()
@@ -48,14 +53,11 @@ async def detect_car(file: UploadFile):
     return {"detections": vehicle_detections}
 
 
-# -----------------------------
-# 2️⃣ Analyze user-selected vehicle
-# -----------------------------
+
 async def analyze_selected_car(file: UploadFile, box: str = Form(...)):
     contents = await file.read()
     image = cv2.imdecode(np.frombuffer(contents, np.uint8), cv2.IMREAD_COLOR)
 
-    # box comes as JSON string from frontend
     box = json.loads(box)
     h, w, _ = image.shape
 
@@ -66,8 +68,25 @@ async def analyze_selected_car(file: UploadFile, box: str = Form(...)):
 
     cropped = image[y_min:y_max, x_min:x_max]
 
-    # Encode cropped image to base64
-    _, buffer = cv2.imencode(".jpg", cropped)
-    cropped_base64 = base64.b64encode(buffer).decode("utf-8")
+    # Write crop to a temp file so infer.py can read it with PIL
+    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+        tmp_path = tmp.name
+        _, buffer = cv2.imencode(".jpg", cropped)
+        tmp.write(buffer.tobytes())
 
-    return {"cropped_image": cropped_base64}
+    try:
+        result = predict(tmp_path)
+    except Exception as e:
+        return {"error": f"Inference failed: {str(e)}"}
+    finally:
+        os.unlink(tmp_path)  # clean up temp file
+
+    return {
+        "brand":        result["brand"],
+        "model":        result["model"],
+        "year":         result["year"],
+        "confidence":   result["confidence"],
+        "notes":        result["notes"],
+        "score":        result["score"],
+        "alternatives": result["alternatives"],
+    }
