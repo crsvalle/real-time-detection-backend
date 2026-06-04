@@ -8,6 +8,7 @@ import tempfile
 import os
 import sys
 
+# Add project root to path so infer.py can be imported
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
 from infer import predict
 
@@ -17,6 +18,9 @@ class_names = model.names
 VEHICLE_CLASSES = {"car", "truck", "bus", "motorcycle"}
 CONF_THRESHOLD = 0.5
 
+
+
+# 1️⃣ Detect all vehicles (unchanged)
 
 async def detect_car(file: UploadFile):
     contents = await file.read()
@@ -54,6 +58,8 @@ async def detect_car(file: UploadFile):
 
 
 
+# 2️⃣ Analyze user-selected vehicle
+
 async def analyze_selected_car(file: UploadFile, box: str = Form(...)):
     contents = await file.read()
     image = cv2.imdecode(np.frombuffer(contents, np.uint8), cv2.IMREAD_COLOR)
@@ -68,10 +74,13 @@ async def analyze_selected_car(file: UploadFile, box: str = Form(...)):
 
     cropped = image[y_min:y_max, x_min:x_max]
 
-    # Write crop to a temp file so infer.py can read it with PIL
+    # Encode cropped image to base64 for frontend preview
+    _, buffer = cv2.imencode(".jpg", cropped)
+    cropped_base64 = base64.b64encode(buffer).decode("utf-8")
+
+    # Write crop to temp file for infer.py
     with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
         tmp_path = tmp.name
-        _, buffer = cv2.imencode(".jpg", cropped)
         tmp.write(buffer.tobytes())
 
     try:
@@ -79,7 +88,7 @@ async def analyze_selected_car(file: UploadFile, box: str = Form(...)):
     except Exception as e:
         return {"error": f"Inference failed: {str(e)}"}
     finally:
-        os.unlink(tmp_path)  # clean up temp file
+        os.unlink(tmp_path)
 
     return {
         "brand":        result["brand"],
@@ -89,4 +98,5 @@ async def analyze_selected_car(file: UploadFile, box: str = Form(...)):
         "notes":        result["notes"],
         "score":        result["score"],
         "alternatives": result["alternatives"],
+        "cropped_image": cropped_base64,   
     }
